@@ -1,0 +1,219 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysecrets
+type: Opaque
+data:
+  MYSQL_PASSWORD: bXktc2VjcmV0LXB3 
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: my-wordpress
+  name: mywordpress-config
+data:
+  MYSQL_DATABASE: my-db 
+  MYSQL_USER: my-user
+  MYSQL_HOST: mysql
+  MYSQL_RANDOM_ROOT_PASSWORD: '1'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-wordpress
+  namespace: dev-wp
+
+  labels:
+    app: my-wordpress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-wordpress
+  template:
+    metadata:
+      labels:
+        app: my-wordpress
+    spec:
+      containers:
+      - name: my-wordpress
+        image: wordpress:latest
+        ports:
+        - containerPort: 80
+        env:
+        - name: WORDPRESS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysecrets
+              key: MYSQL_PASSWORD
+        - name: WORDPRESS_DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: mywordpress-config
+              key: MYSQL_USER
+        - name: WORDPRESS_DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: mywordpress-config
+              key: MYSQL_DATABASE
+        - name: WORDPRESS_DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: mywordpress-config
+              key: MYSQL_HOST
+        volumeMounts:
+        - mountPath: "/var/www/html"
+          name: ks8volume-wp
+      volumes:
+      - name: ks8volume-wp
+        persistentVolumeClaim:
+          claimName: ks8volume-claim2     
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: wp-pv
+spec:
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: standard
+  local:
+    path: /home/ruben/Escritorio/VE/kube/mnt/data/wp #windows path
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - docker-desktop         
+---          
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ks8volume-claim2
+spec:
+  storageClassName: standard
+  accessModes:
+  - ReadWriteOnce
+  resources:
+     requests:
+      storage: 3Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-db
+  namespace: dev-wp
+  labels:
+    app: my-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-db
+  template:
+    metadata:
+      labels:
+        app: my-db
+    spec:
+      containers:
+      - name: my-db
+        image: mysql:5.7
+        ports:
+        - containerPort: 80
+        env:
+        - name: MYSQL_RANDOM_ROOT_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: mywordpress-config
+              key: MYSQL_RANDOM_ROOT_PASSWORD
+        - name: MYSQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: mywordpress-config
+              key: MYSQL_DATABASE
+        - name: MYSQL_USER
+          valueFrom:
+            configMapKeyRef:
+              name: mywordpress-config
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysecrets
+              key: MYSQL_PASSWORD
+      volumes:
+      - name: ks8volume-mysql
+        persistentVolumeClaim:
+          claimName: ks8volume-claim
+       
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+spec:
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: standard
+  local:
+    path: /home/ruben/Escritorio/VE/kube/mnt/data/mysql
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - docker-desktop
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ks8volume-claim
+spec:
+  storageClassName: standard
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql ## DNS name (cluster internal)
+  labels:
+    app: my-db
+spec:
+  type: ClusterIP
+  selector:
+    app: my-db # busca el deployment que tenga esa label
+  ports: # puertos que va a escuchar
+  - name: http
+    port: 3306
+    targetPort: 3306
+  - name: mysql
+    port: 33060
+    targetPort: 33060
+---
+apiVersion: v1
+kind: Service
+metadata:
+ name: wordpress-node
+spec:
+ type: NodePort
+ selector:
+    app: my-wordpress # Busca a partir del laberl app: my-wordpres
+ ports:
+  - name: "80"
+    port: 8080
+    targetPort: 80
